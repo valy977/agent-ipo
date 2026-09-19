@@ -1,50 +1,83 @@
-import requests
+import urllib.request
 import xml.etree.ElementTree as ET
 
-# Lista de companii pe care le monitorizăm
-WATCHLIST = ["OpenAI", "SpaceX", "Stripe", "Databricks"]
+# 1. Top companii private globale cu potential urias de evaluare (Unicorni > $2Mld+)
+MEGA_UNICORNS = [
+    # Tech & AI
+    "OPENAI", "ANTHROPIC", "DATABRICKS", "SCALE AI", "PERPLEXITY",
+    # Aerospace & Defense
+    "SPACEX", "ANDURIL",
+    # Fintech & Payments
+    "STRIPE", "REVOLUT", "KLARNA", "CHIME", "PLAID", "RIPPLE",
+    # E-Commerce, Retail & Fashion
+    "SHEIN", "TEMU", "FANATICS", "SKIMS",
+    # Gaming, Social & Entertainment
+    "EPIC GAMES", "BYTEDANCE", "DISCORD", "CANVA", "FIGMA",
+    # Health, Automation & Logistics
+    "DEVOTED HEALTH", "TEMPUS", "FLEXPORT"
+]
 
-# Canalul tău secret pentru notificări gratuite pe telefon (prin aplicația ntfy)
-NTFY_CHANNEL = "bursa-ipo-notificari-vasile" 
+# 2. Marile banci de investitii (Bulge Bracket Underwriters)
+# Orice IPO gigant va avea cel putin una din aceste banci ca intermediar principal
+TOP_UNDERWRITERS = [
+    "GOLDMAN SACHS", 
+    "MORGAN STANLEY", 
+    "J.P. MORGAN", "JPMORGAN", 
+    "CITIGROUP", 
+    "BANK OF AMERICA", "BOFA"
+]
+
+def send_push_notification(title, message):
+    url = "https://ntfy.sh/bursa-ipo-notificari-vasile"
+    req = urllib.request.Request(
+        url,
+        data=f"{title}: {message}".encode('utf-8'),
+        headers={'Title': title, 'Priority': 'high'}
+    )
+    try:
+        urllib.request.urlopen(req)
+        print("Notificare trimisa cu succes!")
+    except Exception as e:
+        print(f"Eroare la trimiterea notificarii: {e}")
 
 def check_sec_s1_filings():
+    # Feed-ul oficial SEC EDGAR pentru depunerile S-1
     url = "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=S-1&output=atom"
-    # SEC cere un User-Agent identificabil
-    headers = {'User-Agent': 'IPOBot/1.0 (contact@example.com)'}
+    
+    req = urllib.request.Request(
+        url, 
+        headers={'User-Agent': 'VasileAgentIPO vasile@example.com'}
+    )
     
     try:
-        response = requests.get(url, headers=headers)
-        if response.status_code != 200:
-            print(f"Eroare SEC: Status {response.status_code}")
-            return
-
-        root = ET.fromstring(response.content)
-        ns = {'atom': 'http://www.w3.org/2005/Atom'}
+        with urllib.request.urlopen(req) as response:
+            xml_data = response.read()
+            
+        root = ET.fromstring(xml_data)
+        namespace = {'atom': 'http://www.w3.org/2005/Atom'}
         
-        found = False
-        for entry in root.findall('atom:entry', ns):
-            title = entry.find('atom:title', ns).text
-            link = entry.find('atom:link', ns).attrib['href']
+        entries = root.findall('atom:entry', namespace)
+        
+        for entry in entries:
+            title = entry.find('atom:title', namespace).text.upper()
+            summary = entry.find('atom:summary', namespace)
+            summary_text = summary.text.upper() if summary is not None else ""
+            link = entry.find('atom:link', namespace).attrib['href']
             
-            for company in WATCHLIST:
-                if company.lower() in title.lower():
-                    found = True
-                    msg = f"🚀 IPO Alert: {company} a depus S-1 la SEC!\n{link}"
-                    send_push_notification(f"IPO Nou: {company}", msg)
-                    
-        if not found:
-            print("Verificare finalizată: Nicio companie din listă nu a depus dosar recent.")
+            # Criteriu 1: Compania este un unicorn din lista noastra
+            is_unicorn = any(company in title for company in MEGA_UNICORNS)
             
-    except Exception as e:
-        print(f"A apărut o eroare: {e}")
+            # Criteriu 2: Prospectul mentioneaza o banca de investitii de prim rang
+            has_top_underwriter = any(bank in summary_text for bank in TOP_UNDERWRITERS)
+            
+            if is_unicorn or has_top_underwriter:
+                reason = "Unicorn Target" if is_unicorn else "Major Bank Underwritten IPO"
+                msg = f"[{reason}] S-1 Detectat: {entry.find('atom:title', namespace).text}. Link: {link}"
+                send_push_notification("ALERTA IPO POTENTIAL MARE", msg)
+                print(f"Match gasit: {msg}")
 
-def send_push_notification(title, text):
-    # Trimite notificare gratuită direct pe telefon prin ntfy.sh
-    requests.post(
-        f"https://ntfy.sh/{NTFY_CHANNEL}",
-        data=text.encode('utf-8'),
-        headers={"Title": title}
-    )
+    except Exception as e:
+        print(f"Eroare la procesarea SEC RSS: {e}")
 
 if __name__ == "__main__":
     check_sec_s1_filings()

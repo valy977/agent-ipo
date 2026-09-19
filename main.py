@@ -8,7 +8,6 @@ import os
 # ============================================================
 
 MEGA_UNICORNS = [
-    "TEST_TEMPORAR_STERGE", "INC", "CORP",
     "OPENAI", "ANTHROPIC", "DATABRICKS", "SCALE AI", "PERPLEXITY",
     "SPACE EXPLORATION TECHNOLOGIES", "SPACEX", "ANDURIL",
     "STRIPE", "REVOLUT", "KLARNA", "CHIME", "PLAID", "RIPPLE",

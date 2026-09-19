@@ -7,43 +7,23 @@ import os
 # CONFIGURARE
 # ============================================================
 
-# 1. Top companii private globale cu potential urias de evaluare (Unicorni > $2Mld+)
-#    NOTA: SEC foloseste numele LEGAL al companiei, nu brandul. Ex: "SPACEX" apare
-#    ca "SPACE EXPLORATION TECHNOLOGIES". Am completat cu variante legale unde le stiu;
-#    verifica/ajusteaza daca vezi ca un match asteptat nu apare.
 MEGA_UNICORNS = [
-    # Tech & AI
-    "inc","corp","OPENAI", "ANTHROPIC", "DATABRICKS", "SCALE AI", "PERPLEXITY",
-    # Aerospace & Defense
+    "TEST_TEMPORAR_STERGE", "INC", "CORP",
+    "OPENAI", "ANTHROPIC", "DATABRICKS", "SCALE AI", "PERPLEXITY",
     "SPACE EXPLORATION TECHNOLOGIES", "SPACEX", "ANDURIL",
-    # Fintech & Payments
     "STRIPE", "REVOLUT", "KLARNA", "CHIME", "PLAID", "RIPPLE",
-    # E-Commerce, Retail & Fashion
     "SHEIN", "TEMU", "FANATICS", "SKIMS",
-    # Gaming, Social & Entertainment
     "EPIC GAMES", "BYTEDANCE", "DISCORD", "CANVA", "FIGMA",
-    # Health, Automation & Logistics
     "DEVOTED HEALTH", "TEMPUS", "FLEXPORT"
 ]
 
-# 2. Marile banci de investitii (Bulge Bracket Underwriters)
-#    NOTA: feed-ul "getcurrent" NU contine de regula text despre underwriteri in summary,
-#    deci acest filtru probabil nu va prinde nimic din acest endpoint. Il pastram
-#    pentru cazul in care SEC schimba formatul, sau daca treci pe full-text search.
 TOP_UNDERWRITERS = [
-    "GOLDMAN SACHS",
-    "MORGAN STANLEY",
-    "J.P. MORGAN", "JPMORGAN",
-    "CITIGROUP",
-    "BANK OF AMERICA", "BOFA"
+    "GOLDMAN SACHS", "MORGAN STANLEY", "J.P. MORGAN", "JPMORGAN",
+    "CITIGROUP", "BANK OF AMERICA", "BOFA"
 ]
 
 STATE_FILE = "seen_filings.json"
 
-
-# ============================================================
-# NOTIFICARI
-# ============================================================
 
 def send_push_notification(title, message):
     url = "https://ntfy.sh/bursa-ipo-notificari-vasile"
@@ -59,10 +39,6 @@ def send_push_notification(title, message):
         print(f"Eroare la trimiterea notificarii: {e}")
 
 
-# ============================================================
-# STARE (evita notificari duplicate intre rulari)
-# ============================================================
-
 def load_seen_filings():
     if os.path.exists(STATE_FILE):
         try:
@@ -74,15 +50,10 @@ def load_seen_filings():
 
 
 def save_seen_filings(seen_links):
-    # Pastram doar ultimele 500 de linkuri, ca fisierul sa nu creasca la infinit
     trimmed = list(seen_links)[-500:]
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(trimmed, f)
 
-
-# ============================================================
-# VERIFICARE SEC EDGAR
-# ============================================================
 
 def check_sec_s1_filings():
     url = "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=S-1&output=atom"
@@ -93,16 +64,28 @@ def check_sec_s1_filings():
     )
 
     seen_filings = load_seen_filings()
-    new_seen_filings = set(seen_filings)  # copie de lucru, actualizata pe parcurs
+    new_seen_filings = set(seen_filings)
 
     try:
         with urllib.request.urlopen(req) as response:
             xml_data = response.read()
 
+        # --- DEBUG: vedem exact ce a raspuns SEC ---
+        print(f"DEBUG: lungime raspuns brut: {len(xml_data)} caractere")
+        print(f"DEBUG: primele 500 caractere: {xml_data[:500]}")
+        # --- SFARSIT DEBUG ---
+
         root = ET.fromstring(xml_data)
         namespace = {'atom': 'http://www.w3.org/2005/Atom'}
 
         entries = root.findall('atom:entry', namespace)
+
+        # --- DEBUG: cate intrari, si titlurile lor ---
+        print(f"DEBUG: numar total de intrari in feed: {len(entries)}")
+        for i, e in enumerate(entries[:10]):
+            t = e.find('atom:title', namespace)
+            print(f"DEBUG: intrare {i}: {t.text if t is not None else '(fara titlu)'}")
+        # --- SFARSIT DEBUG ---
 
         matches_found = 0
 
@@ -118,9 +101,8 @@ def check_sec_s1_filings():
             summary_text = summary_el.text.upper() if summary_el is not None and summary_el.text else ""
             link = link_el.attrib['href']
 
-            # Cheia de deduplicare: link-ul filing-ului e unic per depunere
             if link in seen_filings:
-                continue  # deja notificat la o rulare anterioara
+                continue
 
             is_unicorn = any(company in title for company in MEGA_UNICORNS)
             has_top_underwriter = any(bank in summary_text for bank in TOP_UNDERWRITERS)
@@ -132,11 +114,8 @@ def check_sec_s1_filings():
                 send_push_notification("ALERTA IPO POTENTIAL MARE", msg)
                 print(f"Match gasit: {msg}")
 
-            # Marcam ca "vazut" indiferent daca a fost match sau nu,
-            # ca sa nu re-procesam acelasi filing la infinit
             new_seen_filings.add(link)
 
-        # Notificare de status doar daca nu s-a gasit nimic, ca sa nu primesti spam zilnic
         if matches_found == 0:
             print("Scanare finalizata. Niciun S-1 nou relevant.")
 

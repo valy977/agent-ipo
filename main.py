@@ -13,7 +13,7 @@ import os
 #    verifica/ajusteaza daca vezi ca un match asteptat nu apare.
 MEGA_UNICORNS = [
     # Tech & AI
-    "OPENAI", "ANTHROPIC", "DATABRICKS", "SCALE AI", "PERPLEXITY",
+    "inc","corp","OPENAI", "ANTHROPIC", "DATABRICKS", "SCALE AI", "PERPLEXITY",
     # Aerospace & Defense
     "SPACE EXPLORATION TECHNOLOGIES", "SPACEX", "ANDURIL",
     # Fintech & Payments

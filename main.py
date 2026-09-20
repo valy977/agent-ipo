@@ -3,6 +3,7 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 import json
 import os
+import time
 import datetime
 
 # ============================================================
@@ -23,10 +24,22 @@ TOP_UNDERWRITERS = [
     "CITIGROUP", "BANK OF AMERICA"
 ]
 
-PRAG_BANCI = 2  # notificam doar daca cel putin atatea banci mari apar in acelasi S-1
+PRAG_BANCI = 3  # minim atatea banci mari in acelasi S-1, ca sa conteze
+
+CUVINTE_EXCLUSE = [
+    "ACQUISITION CORP", "ACQUISITION CORP.", "ACQUISITION COMPANY",
+    "SPAC", "BLANK CHECK"
+]
+
+ZILE_FEREASTRA_UNDERWRITER = 3  # cat de mult in urma verificam la interogarea de banci
 
 STATE_FILE = "seen_filings.json"
 USER_AGENT = "VasileAgentIPO vasile@example.com"
+
+
+def este_exclusa(nume_companie):
+    nume_upper = nume_companie.upper()
+    return any(cuvant in nume_upper for cuvant in CUVINTE_EXCLUSE)
 
 
 # ============================================================
@@ -48,7 +61,7 @@ def send_push_notification(title, message):
 
 
 # ============================================================
-# STARE (evita notificari duplicate intre rulari)
+# STARE
 # ============================================================
 
 def load_seen_filings():
@@ -109,43 +122,56 @@ def check_unicorn_filings(seen_filings, new_seen_filings):
 
 # ============================================================
 # 2. VERIFICARE PE BANCI UNDERWRITER (Full-Text Search EDGAR)
-#    Notificam doar daca 2+ banci mari apar in ACELASI S-1
+#    Notificam doar daca 2+ banci mari apar in ACELASI S-1,
+#    excluzand SPAC-urile / acquisition corps
 # ============================================================
+
+def cauta_banca(bank, start_date, end_date, incercari=3):
+    params = urllib.parse.urlencode({
+        "q": f'"{bank}"',
+        "forms": "S-1",
+        "startdt": start_date.isoformat(),
+        "enddt": end_date.isoformat()
+    })
+    url = f"https://efts.sec.gov/LATEST/search-index?{params}"
+    req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
+
+    for incercare in range(incercari):
+        try:
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read())
+            return data.get("hits", {}).get("hits", [])
+        except Exception as e:
+            print(f"Eroare la interogarea pentru {bank} (incercarea {incercare + 1}/{incercari}): {e}")
+            if incercare < incercari - 1:
+                time.sleep(3)
+
+    return []
+
 
 def check_underwriter_filings(seen_filings, new_seen_filings):
     end_date = datetime.date.today()
-    start_date = end_date - datetime.timedelta(days=3)  # fereastra de siguranta
+    start_date = end_date - datetime.timedelta(days=ZILE_FEREASTRA_UNDERWRITER)
 
     filing_bank_matches = {}  # adsh -> {"banks": set(), "company": str}
 
     for bank in TOP_UNDERWRITERS:
-        params = urllib.parse.urlencode({
-            "q": f'"{bank}"',
-            "forms": "S-1",  # doar depuneri initiale, nu si S-1/A
-            "startdt": start_date.isoformat(),
-            "enddt": end_date.isoformat()
-        })
-        url = f"https://efts.sec.gov/LATEST/search-index?{params}"
-        req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
+        hits = cauta_banca(bank, start_date, end_date)
 
-        try:
-            with urllib.request.urlopen(req) as response:
-                data = json.loads(response.read())
+        for hit in hits:
+            source = hit.get("_source", {})
+            adsh = source.get("adsh") or hit.get("_id", "")
+            company_names = source.get("display_names", [])
+            company = ", ".join(company_names) if company_names else "Companie necunoscuta"
 
-            hits = data.get("hits", {}).get("hits", [])
+            if este_exclusa(company):
+                continue
 
-            for hit in hits:
-                source = hit.get("_source", {})
-                adsh = source.get("adsh") or hit.get("_id", "")
-                company_names = source.get("display_names", [])
-                company = ", ".join(company_names) if company_names else "Companie necunoscuta"
+            if adsh not in filing_bank_matches:
+                filing_bank_matches[adsh] = {"banks": set(), "company": company}
+            filing_bank_matches[adsh]["banks"].add(bank)
 
-                if adsh not in filing_bank_matches:
-                    filing_bank_matches[adsh] = {"banks": set(), "company": company}
-                filing_bank_matches[adsh]["banks"].add(bank)
-
-        except Exception as e:
-            print(f"Eroare la interogarea full-text search pentru {bank}: {e}")
+        time.sleep(1)
 
     for adsh, info in filing_bank_matches.items():
         key = f"fulltext:{adsh}"
